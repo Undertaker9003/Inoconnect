@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "238599028360",
+    "project_id": "innoconnect-79efd",
+    "storage_bucket": "innoconnect-79efd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:238599028360:android:f9ff46f3204a69a148a93d",
+        "android_client_info": {
+          "package_name": "com.example.inoconnect"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQ4-GlVdOlFrmGEuNq13_Nx3gEPZTAVYQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
