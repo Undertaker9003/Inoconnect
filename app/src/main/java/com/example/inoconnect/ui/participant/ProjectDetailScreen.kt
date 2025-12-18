@@ -1,6 +1,5 @@
 package com.example.inoconnect.ui.participant
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -20,7 +19,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,7 +26,6 @@ import coil.compose.AsyncImage
 import com.example.inoconnect.data.FirebaseRepository
 import com.example.inoconnect.data.Project
 import com.example.inoconnect.ui.auth.BrandBlue
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -38,32 +35,22 @@ fun ProjectDetailScreen(
     onManageClick: () -> Unit // <--- NEW: Callback for creator navigation
 ) {
     val repository = remember { FirebaseRepository() }
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val currentUserId = repository.currentUserId
 
     // State
     var project by remember { mutableStateOf<Project?>(null) }
-    var creatorName by remember { mutableStateOf("Loading...") }
+    var creatorName by remember { mutableStateOf("Loading...") } // <--- NEW STATE
     var isLoading by remember { mutableStateOf(true) }
-    var isSendingRequest by remember { mutableStateOf(false) }
-
-    // Helper to refresh data
-    fun refreshProject() {
-        scope.launch {
-            val fetchedProject = repository.getProjectById(projectId)
-            project = fetchedProject
-
-            if (fetchedProject != null) {
-                val user = repository.getUserById(fetchedProject.creatorId)
-                creatorName = user?.username ?: "Unknown User"
-            }
-            isLoading = false
-        }
-    }
 
     LaunchedEffect(projectId) {
-        refreshProject()
+        val fetchedProject = repository.getProjectById(projectId)
+        project = fetchedProject
+
+        // Fetch Creator Name
+        if (fetchedProject != null) {
+            val user = repository.getUserById(fetchedProject.creatorId)
+            creatorName = user?.username ?: "Unknown User"
+        }
+        isLoading = false
     }
 
     Box(
@@ -165,6 +152,7 @@ fun ProjectDetailScreen(
                         Column(modifier = Modifier.padding(24.dp)) {
                             Text(p.title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.Black)
 
+                            // --- NEW: Creator Name ---
                             Text(
                                 text = "Created by $creatorName",
                                 fontSize = 14.sp,
@@ -176,12 +164,14 @@ fun ProjectDetailScreen(
 
                             // Stats Row
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                // Team Size
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.Person, null, tint = BrandBlue, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(8.dp))
                                     Text("${p.memberIds.size}/${p.targetTeamSize} Members", fontSize = 14.sp)
                                 }
 
+                                // Deadline
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.DateRange, null, tint = BrandBlue, modifier = Modifier.size(20.dp))
                                     Spacer(Modifier.width(8.dp))
@@ -193,12 +183,14 @@ fun ProjectDetailScreen(
                             HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                             Spacer(Modifier.height(16.dp))
 
+                            // Description
                             Text("About Project", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(8.dp))
                             Text(p.description, fontSize = 14.sp, color = Color.Gray, lineHeight = 22.sp)
 
                             Spacer(Modifier.height(24.dp))
 
+                            // Looking For Tags
                             if (p.tags.isNotEmpty()) {
                                 Text("Looking For", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(12.dp))
@@ -222,7 +214,7 @@ fun ProjectDetailScreen(
 
                             Spacer(Modifier.height(32.dp))
 
-                            // --- DYNAMIC ACTION BUTTON ---
+                            // Action Button
                             Button(
                                 onClick = {
                                     if (isCreator) {
