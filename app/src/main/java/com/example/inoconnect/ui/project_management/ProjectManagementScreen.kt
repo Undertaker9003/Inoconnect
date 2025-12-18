@@ -18,8 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -29,7 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.inoconnect.data.FirebaseRepository
-import com.example.inoconnect.data.Milestone
 import com.example.inoconnect.data.Project
 import com.example.inoconnect.data.User
 import com.example.inoconnect.ui.auth.BrandBlue
@@ -43,30 +40,60 @@ fun ProjectManagementScreen(
 ) {
     val repository = remember { FirebaseRepository() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var project by remember { mutableStateOf<Project?>(null) }
+
+    // User lists
     var pendingUsers by remember { mutableStateOf<List<User>>(emptyList()) }
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Overview, 1: Milestones, 2: Admin
+    var memberUsers by remember { mutableStateOf<List<User>>(emptyList()) }
+
+    // UI State
+    var selectedTab by remember { mutableIntStateOf(0) }
     var isLoading by remember { mutableStateOf(true) }
 
-    // Helper to refresh data
+    // For Chat
+    var currentUserName by remember { mutableStateOf("") }
+
+    // --- REFRESH DATA FUNCTION ---
     fun refreshData() {
         scope.launch {
             val p = repository.getProjectById(projectId)
             project = p
-            if (p != null && p.pendingApplicantIds.isNotEmpty()) {
-                pendingUsers = repository.getUsersByIds(p.pendingApplicantIds)
-            } else {
-                pendingUsers = emptyList()
+
+            if (p != null) {
+                // Fetch Pending Applicants
+                if (p.pendingApplicantIds.isNotEmpty()) {
+                    pendingUsers = repository.getUsersByIds(p.pendingApplicantIds)
+                } else {
+                    pendingUsers = emptyList()
+                }
+
+                // Fetch Current Members
+                if (p.memberIds.isNotEmpty()) {
+                    memberUsers = repository.getUsersByIds(p.memberIds)
+                } else {
+                    memberUsers = emptyList()
+                }
             }
+
+            // Fetch Current User Name (for Chat)
+            val uid = repository.currentUserId
+            if (uid != null) {
+                val me = repository.getUserById(uid)
+                currentUserName = me?.username ?: "Unknown"
+            }
+
             isLoading = false
         }
     }
 
-    LaunchedEffect(projectId) { refreshData() }
+    LaunchedEffect(projectId) {
+        refreshData()
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        // --- Header ---
+        // --- 1. Blue Curved Header ---
         Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
             val path = Path().apply {
                 moveTo(0f, 0f)
@@ -78,10 +105,15 @@ fun ProjectManagementScreen(
             drawPath(path = path, color = BrandBlue)
         }
 
-        IconButton(onClick = onBackClick, modifier = Modifier.padding(top = 40.dp, start = 16.dp)) {
+        // Back Button
+        IconButton(
+            onClick = onBackClick,
+            modifier = Modifier.padding(top = 40.dp, start = 16.dp)
+        ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
         }
 
+        // --- 2. Main Content ---
         if (isLoading || project == null) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = BrandBlue)
         } else {
@@ -93,7 +125,7 @@ fun ProjectManagementScreen(
                     .fillMaxSize()
                     .padding(top = 100.dp)
             ) {
-                // Title
+                // Project Title
                 Text(
                     p.title,
                     fontSize = 22.sp,
@@ -105,26 +137,29 @@ fun ProjectManagementScreen(
                 Spacer(modifier = Modifier.height(30.dp))
 
                 // --- TABS ---
-                TabRow(
+                ScrollableTabRow(
                     selectedTabIndex = selectedTab,
                     containerColor = Color.Transparent,
                     contentColor = BrandBlue,
-                    divider = {}
+                    divider = {},
+                    edgePadding = 16.dp
                 ) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Overview") })
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Milestones") })
+                    Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Chat") })
                     if (isCreator) {
                         Tab(
-                            selected = selectedTab == 2,
-                            onClick = { selectedTab = 2 },
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
                             text = {
-                                Text("Admin" + if (p.pendingApplicantIds.isNotEmpty()) " (${p.pendingApplicantIds.size})" else "")
+                                val count = if (p.pendingApplicantIds.isNotEmpty()) " (${p.pendingApplicantIds.size})" else ""
+                                Text("Admin$count")
                             }
                         )
                     }
                 }
 
-                // --- CONTENT AREA ---
+                // --- TAB CONTENT ---
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -132,9 +167,29 @@ fun ProjectManagementScreen(
                         .padding(16.dp)
                 ) {
                     when (selectedTab) {
-                        0 -> OverviewTab(p)
-                        1 -> MilestonesTab(p, repository) { refreshData() }
-                        2 -> AdminTab(p, pendingUsers, repository) { refreshData() }
+                        0 -> OverviewTab(
+                            project = p,
+                            members = memberUsers,
+                            isCreator = isCreator,
+                            repository = repository,
+                            onRefresh = { refreshData() }
+                        )
+                        1 -> MilestonesTab(
+                            project = p,
+                            repository = repository,
+                            onRefresh = { refreshData() }
+                        )
+                        2 -> ChatTab(
+                            projectId = p.projectId,
+                            currentUserName = currentUserName
+                        )
+                        3 -> AdminTab(
+                            project = p,
+                            pendingUsers = pendingUsers,
+                            repository = repository,
+                            onProjectDeleted = onBackClick,
+                            onRefresh = { refreshData() }
+                        )
                     }
                 }
             }
@@ -142,72 +197,124 @@ fun ProjectManagementScreen(
     }
 }
 
-// --- TAB 1: OVERVIEW ---
+// ==========================================
+//               TAB: OVERVIEW
+// ==========================================
 @Composable
-fun OverviewTab(project: Project) {
+fun OverviewTab(
+    project: Project,
+    members: List<User>,
+    isCreator: Boolean,
+    repository: FirebaseRepository,
+    onRefresh: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    // Calculate Progress
     val total = project.milestones.size
     val completed = project.milestones.count { it.isCompleted }
     val progress = if (total > 0) completed.toFloat() / total else 0f
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
-        Spacer(modifier = Modifier.height(20.dp))
+    LazyColumn(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        item {
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // Circular Progress
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(150.dp)) {
-            Canvas(modifier = Modifier.size(150.dp)) {
-                drawArc(
-                    color = LightGrayInput,
-                    startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    style = Stroke(width = 20.dp.toPx())
-                )
-                drawArc(
-                    color = BrandBlue,
-                    startAngle = -90f,
-                    sweepAngle = 360 * progress,
-                    useCenter = false,
-                    style = Stroke(width = 20.dp.toPx(), cap = StrokeCap.Round)
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${(progress * 100).toInt()}%", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = BrandBlue)
-                Text("Complete", fontSize = 14.sp, color = Color.Gray)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(40.dp))
-
-        // Team Section
-        Text("Team Members", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Row(modifier = Modifier.fillMaxWidth()) {
-            // Just displaying counts/placeholders for now.
-            // Ideally, you fetch User objects for memberIds like we did for pending users.
-            project.memberIds.forEach { _ ->
-                Surface(
-                    shape = CircleShape,
-                    color = BrandBlue.copy(alpha = 0.1f),
-                    modifier = Modifier.size(40.dp).padding(end = 8.dp)
-                ) {
-                    Icon(Icons.Default.Person, null, tint = BrandBlue, modifier = Modifier.padding(8.dp))
+            // Circular Progress Indicator
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(150.dp)) {
+                Canvas(modifier = Modifier.size(150.dp)) {
+                    drawArc(
+                        color = LightGrayInput,
+                        startAngle = 0f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(width = 20.dp.toPx())
+                    )
+                    drawArc(
+                        color = if (project.status == "Completed") Color(0xFF4CAF50) else BrandBlue,
+                        startAngle = -90f,
+                        sweepAngle = 360 * progress,
+                        useCenter = false,
+                        style = Stroke(width = 20.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (project.status == "Completed") Color(0xFF4CAF50) else BrandBlue
+                    )
+                    Text(
+                        text = project.status, // "Active" or "Completed"
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
                 }
             }
 
-            // Invite Button Placeholder
-            Surface(
-                shape = CircleShape,
-                color = LightGrayInput,
-                modifier = Modifier.size(40.dp)
+            Spacer(modifier = Modifier.height(40.dp))
+
+            Text(
+                text = "Team Members (${members.size}/${project.targetTeamSize})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+        }
+
+        // Member List
+        items(members) { user ->
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(2.dp)
             ) {
-                Icon(Icons.Default.Add, null, tint = Color.Gray, modifier = Modifier.padding(8.dp))
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Avatar Placeholder
+                    Surface(
+                        shape = CircleShape,
+                        color = BrandBlue.copy(alpha = 0.1f),
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Default.Person, null, tint = BrandBlue, modifier = Modifier.padding(8.dp))
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(user.username, fontWeight = FontWeight.SemiBold)
+                        Text(user.email, fontSize = 12.sp, color = Color.Gray)
+                    }
+
+                    // Remove Button (Only for Creator, cannot remove self)
+                    if (isCreator && user.userId != project.creatorId) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                repository.removeMember(project.projectId, user.userId)
+                                onRefresh()
+                            }
+                        }) {
+                            Icon(Icons.Default.Delete, "Remove", tint = Color.Red.copy(alpha = 0.6f))
+                        }
+                    } else if (user.userId == project.creatorId) {
+                        Text("Owner", fontSize = 12.sp, color = BrandBlue, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
 }
 
-// --- TAB 2: MILESTONES ---
+// ==========================================
+//               TAB: MILESTONES
+// ==========================================
 @Composable
 fun MilestonesTab(
     project: Project,
@@ -218,14 +325,18 @@ fun MilestonesTab(
     val scope = rememberCoroutineScope()
 
     Column {
-        // Add Milestone Input
+        // Input Area
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = newMilestoneTitle,
                 onValueChange = { newMilestoneTitle = it },
                 placeholder = { Text("Add new task...") },
                 modifier = Modifier.weight(1f),
-                singleLine = true
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = BrandBlue,
+                    unfocusedBorderColor = Color.LightGray
+                )
             )
             IconButton(onClick = {
                 if (newMilestoneTitle.isNotBlank()) {
@@ -242,31 +353,54 @@ fun MilestonesTab(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // List
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(project.milestones) { milestone ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = if (milestone.isCompleted) Color(0xFFF0F9EB) else Color.White),
-                    elevation = CardDefaults.cardElevation(2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+        // Milestones List
+        if (project.milestones.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No milestones yet. Add one to start!", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(project.milestones) { milestone ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (milestone.isCompleted) Color(0xFFF0F9EB) else Color.White
+                        ),
+                        elevation = CardDefaults.cardElevation(2.dp)
                     ) {
-                        Checkbox(
-                            checked = milestone.isCompleted,
-                            onCheckedChange = {
+                        Row(
+                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = milestone.isCompleted,
+                                onCheckedChange = {
+                                    scope.launch {
+                                        repository.toggleMilestone(project.projectId, milestone)
+                                        onRefresh()
+                                    }
+                                },
+                                colors = CheckboxDefaults.colors(checkedColor = BrandBlue)
+                            )
+
+                            Text(
+                                text = milestone.title,
+                                modifier = Modifier.weight(1f),
+                                style = if (milestone.isCompleted)
+                                    MaterialTheme.typography.bodyLarge.copy(color = Color.Gray)
+                                else
+                                    MaterialTheme.typography.bodyLarge
+                            )
+
+                            // Delete Milestone
+                            IconButton(onClick = {
                                 scope.launch {
-                                    repository.toggleMilestone(project.projectId, milestone)
+                                    repository.deleteMilestone(project.projectId, milestone)
                                     onRefresh()
                                 }
+                            }) {
+                                Icon(Icons.Default.Close, "Delete", tint = Color.Gray)
                             }
-                        )
-                        Text(
-                            text = milestone.title,
-                            modifier = Modifier.weight(1f),
-                            style = if (milestone.isCompleted) MaterialTheme.typography.bodyLarge.copy(color = Color.Gray) else MaterialTheme.typography.bodyLarge
-                        )
+                        }
                     }
                 }
             }
@@ -274,59 +408,108 @@ fun MilestonesTab(
     }
 }
 
-// --- TAB 3: ADMIN ---
+// ==========================================
+//               TAB: ADMIN
+// ==========================================
 @Composable
 fun AdminTab(
     project: Project,
     pendingUsers: List<User>,
     repository: FirebaseRepository,
+    onProjectDeleted: () -> Unit,
     onRefresh: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
 
-    Column {
-        Text("Pending Join Requests", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
+    LazyColumn {
+        // Section 1: Project Actions
+        item {
+            Text("Project Actions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Toggle Completion
+                Button(
+                    onClick = {
+                        scope.launch {
+                            val newStatus = if(project.status == "Active") "Completed" else "Active"
+                            repository.updateProjectStatus(project.projectId, newStatus)
+                            onRefresh()
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if(project.status == "Active") Color(0xFF4CAF50) else BrandBlue
+                    )
+                ) {
+                    Text(if(project.status == "Active") "Mark Complete" else "Mark Active")
+                }
+
+                // Delete Project
+                Button(
+                    onClick = {
+                        scope.launch {
+                            repository.deleteProject(project.projectId)
+                            onProjectDeleted() // Navigate back
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) {
+                    Text("Delete Project")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            HorizontalDivider(color = LightGrayInput)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // Section 2: Join Requests
+        item {
+            Text("Pending Requests", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         if (pendingUsers.isEmpty()) {
-            Text("No pending requests.", color = Color.Gray, modifier = Modifier.padding(top = 16.dp))
+            item { Text("No pending requests.", color = Color.Gray) }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(pendingUsers) { user ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(2.dp)
+            items(pendingUsers) { user ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(2.dp),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Person, null, tint = Color.Gray)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(user.username, fontWeight = FontWeight.Bold)
-                                Text(user.email, fontSize = 12.sp, color = Color.Gray)
-                            }
+                        Icon(Icons.Default.Person, null, tint = Color.Gray)
+                        Spacer(modifier = Modifier.width(8.dp))
 
-                            // Reject
-                            IconButton(onClick = {
-                                scope.launch {
-                                    repository.rejectJoinRequest(project.projectId, user.userId)
-                                    onRefresh()
-                                }
-                            }) {
-                                Icon(Icons.Default.Close, "Reject", tint = Color.Red)
-                            }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(user.username, fontWeight = FontWeight.Bold)
+                            Text(user.email, fontSize = 12.sp, color = Color.Gray)
+                        }
 
-                            // Accept
-                            IconButton(onClick = {
-                                scope.launch {
-                                    repository.acceptJoinRequest(project.projectId, user.userId)
-                                    onRefresh()
-                                }
-                            }) {
-                                Icon(Icons.Default.Check, "Accept", tint = Color(0xFF4CAF50))
+                        // Reject
+                        IconButton(onClick = {
+                            scope.launch {
+                                repository.rejectJoinRequest(project.projectId, user.userId)
+                                onRefresh()
                             }
+                        }) {
+                            Icon(Icons.Default.Close, "Reject", tint = Color.Red)
+                        }
+
+                        // Accept
+                        IconButton(onClick = {
+                            scope.launch {
+                                repository.acceptJoinRequest(project.projectId, user.userId)
+                                onRefresh()
+                            }
+                        }) {
+                            Icon(Icons.Default.Check, "Accept", tint = Color(0xFF4CAF50))
                         }
                     }
                 }

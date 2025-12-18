@@ -27,10 +27,12 @@ import com.example.inoconnect.data.FirebaseRepository
 import com.example.inoconnect.data.Project
 import com.example.inoconnect.ui.auth.BrandBlue
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProjectDetailScreen(
     projectId: String,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onManageClick: () -> Unit // <--- NEW: Callback for creator navigation
 ) {
     val repository = remember { FirebaseRepository() }
 
@@ -88,6 +90,14 @@ fun ProjectDetailScreen(
             Text("Project not found", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
         } else {
             val p = project!!
+
+            // Logic: Determine User Status
+            val isCreator = p.creatorId == currentUserId
+            val isMember = p.memberIds.contains(currentUserId)
+            val isPending = p.pendingApplicantIds.contains(currentUserId)
+
+            // New Feature: Capacity Check
+            val isFull = p.memberIds.size >= p.targetTeamSize
 
             Column(
                 modifier = Modifier
@@ -185,7 +195,6 @@ fun ProjectDetailScreen(
                                 Text("Looking For", fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(12.dp))
 
-                                @OptIn(ExperimentalLayoutApi::class)
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -207,12 +216,50 @@ fun ProjectDetailScreen(
 
                             // Action Button
                             Button(
-                                onClick = { /* Future Logic: Request to Join */ },
+                                onClick = {
+                                    if (isCreator) {
+                                        onManageClick() // Redirect to Management Dashboard
+                                    } else if (!isMember && !isPending && !isFull) {
+                                        scope.launch {
+                                            isSendingRequest = true
+                                            val success = repository.requestToJoinProject(projectId)
+                                            isSendingRequest = false
+                                            if (success) {
+                                                refreshProject() // Update UI to show "Request Sent"
+                                                Toast.makeText(context, "Request sent!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                Toast.makeText(context, "Could not join (Project Full or Error)", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth().height(50.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandBlue),
-                                shape = RoundedCornerShape(12.dp)
+                                colors = ButtonDefaults.buttonColors(
+                                    // Creator: Blue
+                                    // Full & Not Member: Red
+                                    // Member/Pending: Gray
+                                    // Joinable: Blue
+                                    containerColor = if (isCreator) BrandBlue
+                                    else if (isFull && !isMember) Color.Red.copy(alpha = 0.7f)
+                                    else if (isMember || isPending) Color.Gray
+                                    else BrandBlue
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                // Enabled only if Creator OR (Not Member AND Not Pending AND Not Full)
+                                enabled = isCreator || (!isMember && !isPending && !isSendingRequest && !isFull)
                             ) {
-                                Text("Request to Join Team", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                if (isSendingRequest) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+                                } else {
+                                    val buttonText = when {
+                                        isCreator -> "Manage Project"
+                                        isMember -> "Already a Member"
+                                        isPending -> "Request Sent"
+                                        isFull -> "Full Capacity"
+                                        else -> "Request to Join Team"
+                                    }
+                                    Text(buttonText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

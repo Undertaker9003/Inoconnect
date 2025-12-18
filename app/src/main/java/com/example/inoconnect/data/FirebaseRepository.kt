@@ -1,6 +1,11 @@
 package com.example.inoconnect.data
 
+import com.google.firebase.firestore.Query
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import android.net.Uri
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -230,11 +235,33 @@ class FirebaseRepository {
     }
 
     // --- JOIN REQUEST LOGIC ---
-    suspend fun requestToJoinProject(projectId: String) {
-        val uid = currentUserId ?: return
-        db.collection("projects").document(projectId)
-            .update("pendingApplicantIds", FieldValue.arrayUnion(uid))
-            .await()
+    suspend fun requestToJoinProject(projectId: String): Boolean {
+        val uid = currentUserId ?: return false
+
+        return try {
+            db.runTransaction { transaction ->
+                val ref = db.collection("projects").document(projectId)
+                val snapshot = transaction.get(ref)
+                val project = snapshot.toObject(Project::class.java) ?: return@runTransaction false
+
+                // Check Capacity
+                if (project.memberIds.size >= project.targetTeamSize) {
+                    throw Exception("Project is full")
+                }
+
+                // Check if already pending or member
+                if (project.pendingApplicantIds.contains(uid) || project.memberIds.contains(uid)) {
+                    return@runTransaction true // Already handled
+                }
+
+                // Add to pending
+                transaction.update(ref, "pendingApplicantIds", FieldValue.arrayUnion(uid))
+                true
+            }.await()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     suspend fun acceptJoinRequest(projectId: String, applicantId: String) {
@@ -265,5 +292,76 @@ class FirebaseRepository {
         db.collection("projects").document(projectId)
             .update("pendingApplicantIds", FieldValue.arrayRemove(applicantId))
             .await()
+    }
+
+    // --- FEATURE 1: REMOVE MEMBER ---
+    suspend fun removeMember(projectId: String, memberId: String) {
+        db.collection("projects").document(projectId)
+            .update("memberIds", FieldValue.arrayRemove(memberId))
+            .await()
+    }
+
+    // --- FEATURE 2: DELETE MILESTONE ---
+    suspend fun deleteMilestone(projectId: String, milestone: Milestone) {
+        db.runTransaction { transaction ->
+            val ref = db.collection("projects").document(projectId)
+            val snapshot = transaction.get(ref)
+            val project = snapshot.toObject(Project::class.java) ?: return@runTransaction
+
+            // Filter out the specific milestone
+            val updatedMilestones = project.milestones.filter { it.id != milestone.id }
+
+            transaction.update(ref, "milestones", updatedMilestones)
+        }.await()
+    }
+
+    // --- FEATURE 4: ADMIN ACTIONS (COMPLETE / DELETE) ---
+    suspend fun updateProjectStatus(projectId: String, status: String) {
+        db.collection("projects").document(projectId)
+            .update("status", status)
+            .await()
+    }
+
+    suspend fun deleteProject(projectId: String) {
+        db.collection("projects").document(projectId).delete().await()
+    }
+
+// ... inside FirebaseRepository class ...
+
+    // --- CHAT FEATURE ---
+
+    // 1. Send Message
+    suspend fun sendMessage(projectId: String, messageText: String, senderName: String) {
+        val uid = currentUserId ?: return
+        val newMsgRef = db.collection("projects").document(projectId).collection("messages").document()
+
+        val message = ChatMessage(
+            id = newMsgRef.id,
+            senderId = uid,
+            senderName = senderName,
+            message = messageText,
+            timestamp = Timestamp.now()
+        )
+        newMsgRef.set(message).await()
+    }
+
+    // 2. Listen for Messages (Real-time Flow)
+    fun getProjectMessages(projectId: String): Flow<List<ChatMessage>> = callbackFlow {
+        val subscription = db.collection("projects").document(projectId)
+            .collection("messages")
+            .orderBy("timestamp", Query.Direction.DESCENDING) // Newest first
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    close(error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val messages = snapshot.toObjects(ChatMessage::class.java)
+                    trySend(messages)
+                }
+            }
+
+        // Cancel listener when UI is closed
+        awaitClose { subscription.remove() }
     }
 }
