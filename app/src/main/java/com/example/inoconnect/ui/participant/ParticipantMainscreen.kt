@@ -1,7 +1,5 @@
 package com.example.inoconnect.ui.participant
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
@@ -11,17 +9,15 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.inoconnect.data.FirebaseRepository
 import com.example.inoconnect.ui.auth.BrandBlue
 import com.example.inoconnect.ui.profile.ProfileScreen
 import com.example.inoconnect.ui.project_management.MyProjectScreen
@@ -32,11 +28,15 @@ fun ParticipantMainScreen(
     rootNavController: NavController,
     onEventClick: (String) -> Unit,
     onProjectClick: (String) -> Unit,
-    initialTab: String = "home" // --- NEW PARAMETER ---
+    initialTab: String = "home"
 ) {
     val bottomNavController = rememberNavController()
 
-    // Determine initial index based on tab name
+    // Observe current route to toggle TopBar visibility
+    val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: initialTab
+
+    // Determine initial index
     val initialIndex = remember(initialTab) {
         when(initialTab) {
             "home" -> 0
@@ -50,17 +50,22 @@ fun ParticipantMainScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "InnoConnect",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
-                        color = BrandBlue
+            // Only show the global TopAppBar if NOT on the Home screen
+            if (currentRoute != "home") {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "InnoConnect",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp,
+                            color = BrandBlue
+                        )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.White
                     )
-                },
-                actions = {}
-            )
+                )
+            }
         },
         bottomBar = {
             NavigationBar(containerColor = Color.White) {
@@ -73,8 +78,18 @@ fun ParticipantMainScreen(
                     Icons.Default.Person
                 )
 
-                // Initialize state with the passed index
                 var selectedItem by remember { mutableIntStateOf(initialIndex) }
+
+                // Sync selectedItem with route changes if needed (optional refinement)
+                LaunchedEffect(currentRoute) {
+                    when(currentRoute) {
+                        "home" -> selectedItem = 0
+                        "my_project" -> selectedItem = 1
+                        "messages" -> selectedItem = 2
+                        "connect" -> selectedItem = 3
+                        "profile" -> selectedItem = 4
+                    }
+                }
 
                 items.forEachIndexed { index, item ->
                     NavigationBarItem(
@@ -95,7 +110,6 @@ fun ParticipantMainScreen(
                                 3 -> "connect"
                                 else -> "profile"
                             }
-
                             bottomNavController.navigate(route) {
                                 popUpTo(bottomNavController.graph.startDestinationId) { saveState = true }
                                 launchSingleTop = true
@@ -109,51 +123,25 @@ fun ParticipantMainScreen(
     ) { innerPadding ->
         NavHost(
             navController = bottomNavController,
-            startDestination = initialTab, // --- CHANGED: Use dynamic start destination ---
+            startDestination = initialTab,
             modifier = Modifier.padding(innerPadding)
         ) {
-            // -- 1. HOME --
             composable("home") {
                 ParticipantHome(
                     onEventClick = onEventClick,
                     onProjectClick = onProjectClick,
-                    onCreateProjectClick = {
-                        rootNavController.navigate("create_project")
-                    }
+                    onCreateProjectClick = { rootNavController.navigate("create_project") }
                 )
             }
-
-            // -- 2. MY PROJECT --
             composable("my_project") {
-                MyProjectScreen(
-                    onProjectClick = { projectId ->
-                        rootNavController.navigate("project_management/$projectId")
-                    }
-                )
+                MyProjectScreen(onProjectClick = { projectId -> rootNavController.navigate("project_management/$projectId") })
             }
-
-            // -- 3. MESSAGES --
-            composable("messages") {
-                MessagesScreen(navController = rootNavController)
-            }
-
-            // -- 4. CONNECT --
+            composable("messages") { MessagesScreen(navController = rootNavController) }
             composable("connect") {
-                MyNetworkScreen(
-                    onUserClick = { userId ->
-                        // Navigate to the public profile screen using the root controller
-                        rootNavController.navigate("public_profile/$userId")
-                    }
-                )
+                MyNetworkScreen(onUserClick = { userId -> rootNavController.navigate("public_profile/$userId") })
             }
-
-            // -- 5. PROFILE --
             composable("profile") {
-                ProfileScreen(
-                    onLogout = {
-                        rootNavController.navigate("login") { popUpTo(0) }
-                    }
-                )
+                ProfileScreen(onLogout = { rootNavController.navigate("login") { popUpTo(0) } })
             }
         }
     }
