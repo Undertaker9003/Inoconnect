@@ -6,7 +6,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings // --- ADDED IMPORT
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,9 +66,7 @@ fun ParticipantMainScreen(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.White
                     ),
-                    // --- NEW: Add Actions to Top Bar ---
                     actions = {
-                        // Show Settings icon only on the Profile tab
                         if (currentRoute == "profile") {
                             IconButton(onClick = { rootNavController.navigate("settings") }) {
                                 Icon(
@@ -95,7 +93,6 @@ fun ParticipantMainScreen(
 
                 var selectedItem by remember { mutableIntStateOf(initialIndex) }
 
-                // Sync selectedItem with route changes
                 LaunchedEffect(currentRoute) {
                     when(currentRoute) {
                         "home" -> selectedItem = 0
@@ -156,9 +153,10 @@ fun ParticipantMainScreen(
                 MyNetworkScreen(onUserClick = { userId -> rootNavController.navigate("public_profile/$userId") })
             }
             composable("profile") {
-                // --- UPDATED: Removed onSettingsClick argument ---
+                // --- UPDATED: Pass navigation callback ---
                 ProfileScreen(
-                    onLogout = { rootNavController.navigate("login") { popUpTo(0) } }
+                    onLogout = { rootNavController.navigate("login") { popUpTo(0) } },
+                    onNavigateToProfile = { userId -> rootNavController.navigate("public_profile/$userId") }
                 )
             }
         }

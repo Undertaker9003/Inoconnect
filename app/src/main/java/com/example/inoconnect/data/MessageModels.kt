@@ -18,7 +18,11 @@ data class DirectMessage(
     val senderId: String = "",
     val content: String = "",
     val timestamp: Timestamp = Timestamp.now(),
-    val isRead: Boolean = false
+    val isRead: Boolean = false,
+    val attachmentUrl: String? = null,
+    val attachmentType: String? = null, // "image", "video", "file"
+    val attachmentName: String? = null, // NEW: File name
+    val attachmentSize: String? = null  // NEW: File size string (e.g., "2.5 MB")
 )
 
 // 3. System Notification

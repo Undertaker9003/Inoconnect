@@ -77,15 +77,12 @@ fun MessagesScreen(navController: NavController) {
         }
     }
 
-    // --- FILTERS ---
-
-    // 1. Invitations: Includes "Project Invites" (to me) AND "Join Requests" (from others)
+    // Filter Logic
     val projectInvites = notifications.filter {
         it.type == NotificationType.PROJECT_INVITE ||
                 it.type == NotificationType.PROJECT_JOIN_REQUEST
     }
 
-    // 2. General Notifications: Includes all alerts/info
     val generalNotifs = notifications.filter {
         it.type == NotificationType.SYSTEM_ALERT ||
                 it.type == NotificationType.PROJECT_DECLINE ||
@@ -97,9 +94,7 @@ fun MessagesScreen(navController: NavController) {
                 it.type == NotificationType.WELCOME_MESSAGE
     }
 
-    // Counts
     val inviteCount = projectInvites.size
-    // FIXED: Only count unread notifications for the red dot
     val notifCount = generalNotifs.count { !it.isRead }
     val followCount = connectionRequests.size
 
@@ -170,7 +165,7 @@ fun MessagesScreen(navController: NavController) {
                     )
                 }
 
-                Divider(color = Color.LightGray.copy(alpha = 0.5f), modifier = Modifier.padding(top = 8.dp))
+                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), modifier = Modifier.padding(top = 8.dp))
 
                 // Chat List
                 Text(
@@ -191,9 +186,11 @@ fun MessagesScreen(navController: NavController) {
                         }
                     } else {
                         items(chatChannels) { channel ->
-                            ChatChannelItem(channel = channel, repository = repository) {
-                                navController.navigate("direct_chat/${channel.channelId}")
-                            }
+                            ChatChannelItem(
+                                channel = channel,
+                                repository = repository,
+                                onClick = { navController.navigate("direct_chat/${channel.channelId}") }
+                            )
                         }
                     }
                 }
@@ -217,7 +214,6 @@ fun MessagesScreen(navController: NavController) {
                     } else {
                         items(searchResults) { user ->
                             UserSearchItem(user = user) {
-                                // Navigate to DirectChatScreen
                                 val currentUid = repository.currentUserId ?: return@UserSearchItem
                                 val channelId = if (currentUid < user.userId)
                                     "${currentUid}_${user.userId}"
@@ -246,8 +242,6 @@ fun MessagesScreen(navController: NavController) {
     }
 }
 
-// --- SUB-COMPONENTS ---
-
 @Composable
 fun CategoryDialog(
     tab: MessageTab,
@@ -258,9 +252,6 @@ fun CategoryDialog(
     repository: FirebaseRepository
 ) {
     val scope = rememberCoroutineScope()
-
-    // --- AUTOMATIC MARK AS READ ---
-    // This runs as soon as the dialog opens for the Notifications tab
     if (tab == MessageTab.NOTIFICATIONS) {
         val unreadIds = remember(notifications) {
             notifications.filter { !it.isRead }.map { it.id }
@@ -303,7 +294,7 @@ fun CategoryDialog(
                     }
                 }
 
-                Divider()
+                HorizontalDivider()
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,12 +315,9 @@ fun CategoryDialog(
                                 onConfirm = {
                                     scope.launch {
                                         if (isJoinRequest) {
-                                            // Action: I am Owner, accepting a User
                                             repository.acceptJoinRequest(projectId = invite.relatedId, applicantId = invite.senderId)
-                                            // Clean up the notification
                                             repository.deleteNotification(invite.id)
                                         } else {
-                                            // Action: I am User, accepting an Invite
                                             repository.acceptProjectInvite(invite.id, invite.relatedId)
                                         }
                                         onDismiss()
@@ -338,13 +326,9 @@ fun CategoryDialog(
                                 onCancel = {
                                     scope.launch {
                                         if (isJoinRequest) {
-                                            // Action: Reject applicant
                                             repository.rejectJoinRequest(projectId = invite.relatedId, applicantId = invite.senderId)
-                                            // Clean up the notification
                                             repository.deleteNotification(invite.id)
                                         }
-                                        // If it's just an invite to me, maybe just dismiss the dialog or delete notif?
-                                        // For now, let's just dismiss.
                                         onDismiss()
                                     }
                                 }
@@ -526,8 +510,13 @@ fun HeaderCard(
     }
 }
 
+// --- Chat Channel Item (No Long Click) ---
 @Composable
-fun ChatChannelItem(channel: ChatChannel, repository: FirebaseRepository, onClick: () -> Unit) {
+fun ChatChannelItem(
+    channel: ChatChannel,
+    repository: FirebaseRepository,
+    onClick: () -> Unit
+) {
     var otherUser by remember { mutableStateOf<User?>(null) }
 
     LaunchedEffect(channel) {
