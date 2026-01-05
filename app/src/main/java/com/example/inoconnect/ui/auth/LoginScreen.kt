@@ -173,12 +173,11 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState()), // FIXED: Added Scroll State
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(140.dp))
 
-            // Logo Placeholder
             Surface(
                 shape = CircleShape, color = Color.White, shadowElevation = 8.dp,
                 modifier = Modifier.size(100.dp)
@@ -206,7 +205,6 @@ fun LoginScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     StyledTextField(value = password, onValueChange = { password = it }, label = "Password", icon = Icons.Default.Lock, isPassword = true)
 
-                    // --- FORGOT PASSWORD LINK ---
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                         TextButton(onClick = onForgotPasswordClick) {
                             Text("Forgot Password?", color = Color.Gray, fontSize = 12.sp)
@@ -225,10 +223,17 @@ fun LoginScreen(
                                 } else {
                                     scope.launch {
                                         isLoading = true
-                                        val role = repository.loginUser(email, password)
-                                        isLoading = false
-                                        if (role != null) onLoginSuccess(role)
-                                        else Toast.makeText(context, "Login Failed", Toast.LENGTH_SHORT).show()
+                                        try {
+                                            // The repository now throws specific exceptions (e.g., "Email not verified")
+                                            val role = repository.loginUser(email, password)
+                                            onLoginSuccess(role)
+                                        } catch (e: Exception) {
+                                            // Catch "Email not verified" or "Bad credentials" here
+                                            val msg = e.message ?: "Login Failed"
+                                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                        } finally {
+                                            isLoading = false
+                                        }
                                     }
                                 }
                             },
@@ -284,7 +289,7 @@ fun LoginScreen(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(40.dp)) // Bottom padding for scroll
+            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }

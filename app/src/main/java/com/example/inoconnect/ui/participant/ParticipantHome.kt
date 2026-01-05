@@ -391,8 +391,13 @@ fun ProjectList(
     contentPadding: PaddingValues
 ) {
     val filteredProjects = projects.filter { project ->
-        (project.title.contains(searchQuery, ignoreCase = true) ||
+        // 1. Capacity Check: Filter out full projects
+        val isNotFull = project.memberIds.size < project.targetTeamSize
+        // 2. Search Filter
+        val matchesSearch = (project.title.contains(searchQuery, ignoreCase = true) ||
                 project.tags.any { it.contains(searchQuery, ignoreCase = true) })
+
+        isNotFull && matchesSearch
     }.let { list -> if (isSortedAsc) list.sortedBy { it.title } else list }
 
     if (filteredProjects.isEmpty()) {
