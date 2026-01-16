@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
+import android.widget.VideoView // Added for Video
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,7 +27,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -48,6 +48,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView // Added for VideoView
+import androidx.compose.ui.window.Dialog // Added for Full Screen View
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.navigation.NavController
@@ -79,35 +82,28 @@ fun DirectChatScreen(
     var messageText by remember { mutableStateOf("") }
     var otherUser by remember { mutableStateOf<User?>(null) }
 
+    // PERFORMANCE FIX: Cache current user to avoid fetching on every send
+    var currentUser by remember { mutableStateOf<User?>(null) }
+
     // Attachment State
     var showBottomSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
     var selectedAttachmentUri by remember { mutableStateOf<Uri?>(null) }
     var selectedAttachmentType by remember { mutableStateOf<String?>(null) }
-    // New: File Metadata
     var selectedAttachmentName by remember { mutableStateOf<String?>(null) }
     var selectedAttachmentSize by remember { mutableStateOf<String?>(null) }
 
-    var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
     var isSending by remember { mutableStateOf(false) }
+
+    // VIEW FEATURE: State for full screen viewer
+    var viewingAttachment by remember { mutableStateOf<DirectMessage?>(null) }
 
     // Helper to get file details
     fun updateFileDetails(uri: Uri) {
         val details = getFileDetails(context, uri)
         selectedAttachmentName = details.first
         selectedAttachmentSize = details.second
-    }
-
-    // --- Permission Launchers ---
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Toast.makeText(context, "Camera permission granted. Tap again.", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "Camera permission is required.", Toast.LENGTH_SHORT).show()
-        }
     }
 
     // --- Content Launchers ---
@@ -132,56 +128,12 @@ fun DirectChatScreen(
         }
     }
 
-    val cameraPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && tempCameraUri != null) {
-            selectedAttachmentUri = tempCameraUri
-            selectedAttachmentType = "image"
-            updateFileDetails(tempCameraUri!!)
-        }
-    }
-
-    val cameraVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CaptureVideo()
-    ) { success ->
-        if (success && tempCameraUri != null) {
-            selectedAttachmentUri = tempCameraUri
-            selectedAttachmentType = "video"
-            updateFileDetails(tempCameraUri!!)
-        }
-    }
-
-    fun createTempUri(isVideo: Boolean): Uri? {
-        val type = if (isVideo) "mp4" else "jpg"
-        val prefix = if (isVideo) "VID_" else "IMG_"
-        val file = File.createTempFile(prefix, ".$type", context.cacheDir)
-        return try {
-            FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    fun checkPermissionAndLaunchCamera(isVideo: Boolean) {
-        val permission = Manifest.permission.CAMERA
-        if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
-            val uri = createTempUri(isVideo)
-            if (uri != null) {
-                tempCameraUri = uri
-                if (isVideo) {
-                    cameraVideoLauncher.launch(uri)
-                } else {
-                    cameraPhotoLauncher.launch(uri)
-                }
-            }
-        } else {
-            cameraPermissionLauncher.launch(permission)
-        }
-    }
-
     LaunchedEffect(channelId) {
+        // PERFORMANCE FIX: Fetch current user once
+        if (currentUserId != null) {
+            currentUser = repository.getUserById(currentUserId)
+        }
+
         launch {
             repository.getDirectMessagesFlow(channelId).collect {
                 messages = it.sortedByDescending { msg -> msg.timestamp }
@@ -331,7 +283,9 @@ fun DirectChatScreen(
                                             attachmentUri = selectedAttachmentUri,
                                             attachmentType = selectedAttachmentType,
                                             attachmentName = selectedAttachmentName,
-                                            attachmentSize = selectedAttachmentSize
+                                            attachmentSize = selectedAttachmentSize,
+                                            // PERFORMANCE FIX: Pass cached name
+                                            senderName = currentUser?.username
                                         )
                                         messageText = ""
                                         selectedAttachmentUri = null
@@ -383,9 +337,22 @@ fun DirectChatScreen(
         ) {
             items(messages) { msg ->
                 val isMe = msg.senderId == currentUserId
-                MessageBubble(msg = msg, isMe = isMe, context = context)
+                MessageBubble(
+                    msg = msg,
+                    isMe = isMe,
+                    context = context,
+                    onViewAttachment = { viewingAttachment = it } // Handle click
+                )
             }
         }
+    }
+
+    // --- FULL SCREEN MEDIA VIEWER ---
+    if (viewingAttachment != null) {
+        FullScreenMediaDialog(
+            message = viewingAttachment!!,
+            onDismiss = { viewingAttachment = null }
+        )
     }
 
     if (showBottomSheet) {
@@ -402,9 +369,10 @@ fun DirectChatScreen(
                     modifier = Modifier.padding(bottom = 16.dp, start = 8.dp)
                 )
 
+                // MENU EDIT: Removed Camera and Video options
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+                    horizontalArrangement = Arrangement.SpaceEvenly // Changed to SpaceEvenly
                 ) {
                     AttachmentOptionItem(
                         icon = Icons.Default.Image,
@@ -412,22 +380,6 @@ fun DirectChatScreen(
                         onClick = {
                             showBottomSheet = false
                             galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                        }
-                    )
-                    AttachmentOptionItem(
-                        icon = Icons.Default.CameraAlt,
-                        label = "Camera",
-                        onClick = {
-                            showBottomSheet = false
-                            checkPermissionAndLaunchCamera(false)
-                        }
-                    )
-                    AttachmentOptionItem(
-                        icon = Icons.Default.Videocam,
-                        label = "Video",
-                        onClick = {
-                            showBottomSheet = false
-                            checkPermissionAndLaunchCamera(true)
                         }
                     )
                     AttachmentOptionItem(
@@ -469,6 +421,59 @@ fun getFileDetails(context: Context, uri: Uri): Pair<String, String> {
 }
 
 @Composable
+fun FullScreenMediaDialog(message: DirectMessage, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            when (message.attachmentType) {
+                "image" -> {
+                    AsyncImage(
+                        model = message.attachmentUrl,
+                        contentDescription = "Full Screen Image",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                "video" -> {
+                    // Basic VideoView implementation
+                    if (message.attachmentUrl != null) {
+                        AndroidView(
+                            factory = { context ->
+                                VideoView(context).apply {
+                                    setVideoURI(Uri.parse(message.attachmentUrl))
+                                    val mediaController = android.widget.MediaController(context)
+                                    mediaController.setAnchorView(this)
+                                    setMediaController(mediaController)
+                                    start()
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize().align(Alignment.Center)
+                        )
+                    }
+                }
+            }
+
+            // Close Button
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .padding(16.dp)
+                    .align(Alignment.TopEnd)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
 fun AttachmentOptionItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -493,7 +498,12 @@ fun AttachmentOptionItem(icon: ImageVector, label: String, onClick: () -> Unit) 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
+fun MessageBubble(
+    msg: DirectMessage,
+    isMe: Boolean,
+    context: Context,
+    onViewAttachment: (DirectMessage) -> Unit // New callback
+) {
     val clipboardManager = LocalClipboardManager.current
     val timeString = remember(msg.timestamp) {
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(msg.timestamp.toDate())
@@ -517,9 +527,8 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
             shadowElevation = 1.dp,
             modifier = Modifier
                 .widthIn(max = 300.dp)
-                // --- ADDED LONG PRESS TO COPY ---
                 .combinedClickable(
-                    onClick = { /* Nothing specific on tap yet, maybe details */ },
+                    onClick = { /* Nothing specific on tap yet */ },
                     onLongClick = {
                         if (msg.content.isNotEmpty()) {
                             clipboardManager.setText(AnnotatedString(msg.content))
@@ -540,10 +549,7 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
                                     .fillMaxWidth()
                                     .heightIn(max = 220.dp)
                                     .clip(RoundedCornerShape(12.dp))
-                                    .clickable {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(msg.attachmentUrl))
-                                        context.startActivity(intent)
-                                    },
+                                    .clickable { onViewAttachment(msg) }, // Open in-app viewer
                                 contentScale = ContentScale.Crop
                             )
                             Spacer(modifier = Modifier.height(6.dp))
@@ -555,11 +561,7 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
                                     .height(160.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(Color.Black)
-                                    .clickable {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(msg.attachmentUrl))
-                                        intent.setDataAndType(Uri.parse(msg.attachmentUrl), "video/*")
-                                        context.startActivity(intent)
-                                    },
+                                    .clickable { onViewAttachment(msg) }, // Open in-app viewer
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -572,7 +574,7 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
                             Spacer(modifier = Modifier.height(6.dp))
                         }
                         "file" -> {
-                            // --- IMPROVED FILE DISPLAY ---
+                            // Files still open externally as they can be anything (PDF, Doc, etc)
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -594,7 +596,6 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
-                                    // Show File Name
                                     Text(
                                         text = msg.attachmentName ?: "Attachment",
                                         color = contentColor,
@@ -602,7 +603,6 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
                                         fontSize = 14.sp,
                                         maxLines = 1
                                     )
-                                    // Show File Size if available
                                     if (msg.attachmentSize != null) {
                                         Text(
                                             text = msg.attachmentSize,
@@ -637,7 +637,7 @@ fun MessageBubble(msg: DirectMessage, isMe: Boolean, context: Context) {
     }
 }
 
-// --- IMPROVED ATTACHMENT PREVIEW ---
+// ... AttachmentPreview remains same ...
 @Composable
 fun AttachmentPreview(type: String?, fileName: String?, fileSize: String?, onRemove: () -> Unit) {
     Row(

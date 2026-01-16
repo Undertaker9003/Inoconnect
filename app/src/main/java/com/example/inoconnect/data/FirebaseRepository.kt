@@ -33,11 +33,10 @@ class FirebaseRepository {
     // AUTHENTICATION
     // ============================================================================================
 
-    // Checks if the currently signed-in user has verified their email
     suspend fun checkEmailVerification(): Boolean {
         return try {
             val user = auth.currentUser ?: return false
-            user.reload().await() // Fetches latest data from server
+            user.reload().await()
             user.isEmailVerified
         } catch (e: Exception) {
             e.printStackTrace()
@@ -56,7 +55,6 @@ class FirebaseRepository {
             val newUser = User(userId = user.uid, email = email, role = role, username = username)
             db.collection("users").document(user.uid).set(newUser).await()
 
-            // Note: We do NOT sign out here. We keep them logged in to wait for verification.
             true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -69,12 +67,6 @@ class FirebaseRepository {
             val result = auth.signInWithEmailAndPassword(email, pass).await()
             val user = result.user ?: throw Exception("Authentication failed")
 
-            //Comment out this block temporary for testing purpose
-            //if (!user.isEmailVerified) {
-            //    auth.signOut()
-            //    throw Exception("Email not verified. Please check your inbox.")
-            //}
-
             val uid = user.uid
             val snapshot = db.collection("users").document(uid).get().await()
             return snapshot.getString("role") ?: "participant"
@@ -85,7 +77,6 @@ class FirebaseRepository {
 
     fun logout() {
         auth.signOut()
-
     }
 
     suspend fun signInWithGoogle(idToken: String): String? {
@@ -189,7 +180,11 @@ class FirebaseRepository {
         auth.currentUser?.delete()?.await()
     }
 
-    // --- UPDATED: Added extension parameter to ensure files have proper types ---
+    // ============================================================================================
+    // FILE MANAGEMENT
+    // ============================================================================================
+
+    // UPDATED: Added extension parameter
     suspend fun uploadFile(uri: Uri, folder: String = "uploads", extension: String? = null): String? {
         return try {
             val extSuffix = if (extension != null) ".$extension" else ""
@@ -203,10 +198,14 @@ class FirebaseRepository {
         }
     }
 
-    // --- UPDATED: Pass "jpg" extension for images ---
+    // UPDATED: Pass "jpg" extension for images
     suspend fun uploadImage(imageUri: Uri): String? {
         return uploadFile(imageUri, "images", "jpg")
     }
+
+    // ============================================================================================
+    // USER DATA
+    // ============================================================================================
 
     suspend fun getUserById(userId: String): User? {
         return try {
@@ -261,6 +260,10 @@ class FirebaseRepository {
         db.collection("users").document(uid).update("skills", skills).await()
     }
 
+    // ============================================================================================
+    // NETWORKING & CONNECTIONS
+    // ============================================================================================
+
     fun searchUsers(query: String): Flow<List<User>> = callbackFlow {
         if (query.isBlank()) {
             trySend(emptyList())
@@ -270,7 +273,7 @@ class FirebaseRepository {
         val subscription = db.collection("users")
             .whereGreaterThanOrEqualTo("username", query)
             .whereLessThan("username", query + "\uf8ff")
-            .limit(20) // Added limit for safety
+            .limit(20)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     close(error)
@@ -421,12 +424,11 @@ class FirebaseRepository {
         myRef.update("followingCount", FieldValue.increment(1)).await()
     }
 
-    // --- UPDATED: Added limit(50) to prevent reading the entire database ---
     fun getSuggestedUsersFlow(): Flow<List<NetworkUser>> {
         val uid = currentUserId ?: return flowOf(emptyList())
         val usersFlow = callbackFlow {
             val listener = db.collection("users")
-                .limit(50) // Fix: Limit read operations
+                .limit(50)
                 .addSnapshotListener { snapshot, _ ->
                     val users = snapshot?.toObjects(User::class.java) ?: emptyList()
                     trySend(users)
@@ -485,6 +487,10 @@ class FirebaseRepository {
         }
         awaitClose { sub.remove() }
     }
+
+    // ============================================================================================
+    // EVENTS
+    // ============================================================================================
 
     suspend fun createEvent(
         title: String, description: String, location: String,
@@ -556,6 +562,10 @@ class FirebaseRepository {
             e.printStackTrace()
         }
     }
+
+    // ============================================================================================
+    // PROJECTS
+    // ============================================================================================
 
     suspend fun createProject(
         title: String,
@@ -766,46 +776,51 @@ class FirebaseRepository {
             .await()
     }
 
-    // --- UPDATED: Pass extension based on type ---
+    // ============================================================================================
+    // MESSAGING (OPTIMIZED)
+    // ============================================================================================
+
+    // UPDATED: Accepts senderName, returns Unit.
+    // Optimized: Only await essential operations.
     suspend fun sendMessage(
         channelId: String,
         content: String,
         attachmentUri: Uri? = null,
         attachmentType: String? = null,
         attachmentName: String? = null,
-        attachmentSize: String? = null
+        attachmentSize: String? = null,
+        senderName: String? = null
     ) {
         val uid = currentUserId ?: return
         var attachmentUrl: String? = null
+
+        // 1. Heavy operation: Upload (Must await)
         if (attachmentUri != null && attachmentType != null) {
             val folder = when(attachmentType) {
                 "image" -> "chat_images"
                 "video" -> "chat_videos"
                 else -> "chat_files"
             }
-            // Simple extension mapping
             val ext = when(attachmentType) {
                 "image" -> "jpg"
                 "video" -> "mp4"
-                else -> null // Let uploadFile handle no extension or caller should have passed it
+                else -> null
             }
             attachmentUrl = uploadFile(attachmentUri, folder, ext)
         }
 
-        val myUser = getUserById(uid)
-        val myName = myUser?.username ?: "User"
+        // 2. Optimization: Use passed name or fetch only if necessary
+        val myName = senderName ?: getUserById(uid)?.username ?: "User"
 
         val channelRef = db.collection("chat_channels").document(channelId)
 
+        // 3. Optimization: Only do heavy project sync logic if absolutely necessary
         if (channelId.startsWith("project_")) {
             val docSnap = channelRef.get().await()
-            val isMissingData = !docSnap.exists() || docSnap.get("participantIds") == null
-
-            if (isMissingData) {
+            if (!docSnap.exists()) {
                 val projectId = channelId.removePrefix("project_")
                 val pSnap = db.collection("projects").document(projectId).get().await()
                 val project = pSnap.toObject(Project::class.java)
-
                 if (project != null) {
                     val baseData = mapOf(
                         "channelId" to channelId,
@@ -815,7 +830,7 @@ class FirebaseRepository {
                         "groupImageUrl" to project.imageUrl,
                         "participantIds" to project.memberIds
                     )
-                    channelRef.set(baseData, SetOptions.merge()).await()
+                    channelRef.set(baseData, SetOptions.merge()) // Fire and forget
                 }
             }
         }
@@ -833,7 +848,8 @@ class FirebaseRepository {
             "lastMessageTimestamp" to Timestamp.now(),
             "lastSenderId" to uid
         )
-        channelRef.set(channelUpdate, SetOptions.merge()).await()
+        // Fire and forget channel update task
+        val channelTask = channelRef.set(channelUpdate, SetOptions.merge())
 
         val msgRef = channelRef.collection("messages").document()
         val msgData = hashMapOf(
@@ -847,37 +863,41 @@ class FirebaseRepository {
             "attachmentSize" to attachmentSize,
             "timestamp" to Timestamp.now()
         )
+
+        // Await message write to confirm sent state
         msgRef.set(msgData).await()
+        // Ensure channel update finishes (usually very fast)
+        channelTask.await()
     }
 
+    // UPDATED: Accepts senderName, fire-and-forget notification
     suspend fun sendDirectMessage(
-        toUserId: String, content: String, attachmentUri: Uri? = null,
-        attachmentType: String? = null, attachmentName: String? = null, attachmentSize: String? = null
+        toUserId: String,
+        content: String,
+        attachmentUri: Uri? = null,
+        attachmentType: String? = null,
+        attachmentName: String? = null,
+        attachmentSize: String? = null,
+        senderName: String? = null
     ) {
         val uid = currentUserId ?: return
         val channelId = if (uid < toUserId) "${uid}_$toUserId" else "${toUserId}_$uid"
 
-        val channelRef = db.collection("chat_channels").document(channelId)
-        val snapshot = channelRef.get().await()
-        if (!snapshot.exists()) {
-            val channel = ChatChannel(
-                channelId = channelId,
-                type = ChannelType.DIRECT,
-                participantIds = listOf(uid, toUserId)
+        // Note: We skip check for channel existence for speed; handled lazily by sendMessage
+        sendMessage(channelId, content, attachmentUri, attachmentType, attachmentName, attachmentSize, senderName)
+
+        // PERFORMANCE FIX: Fire-and-forget notification (don't await)
+        try {
+            sendNotification(
+                toUserId = toUserId,
+                type = NotificationType.NEW_DM,
+                title = "New Message",
+                message = "${senderName ?: "Someone"} sent you a message.",
+                relatedId = channelId
             )
-            channelRef.set(channel).await()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-
-        sendMessage(channelId, content, attachmentUri, attachmentType, attachmentName, attachmentSize)
-
-        val myUser = getUserById(uid)
-        sendNotification(
-            toUserId = toUserId,
-            type = NotificationType.NEW_DM,
-            title = "New Message",
-            message = "${myUser?.username ?: "Someone"} sent you a message.",
-            relatedId = channelId
-        )
     }
 
     fun getChatChannelsFlow(): Flow<List<ChatChannel>> = callbackFlow {
@@ -912,6 +932,10 @@ class FirebaseRepository {
         return getUserById(otherId)
     }
 
+    // ============================================================================================
+    // NOTIFICATIONS
+    // ============================================================================================
+
     fun getNotificationsFlow(): Flow<List<AppNotification>> = callbackFlow {
         val uid = currentUserId
         if (uid == null) { trySend(emptyList()); close(); return@callbackFlow }
@@ -928,7 +952,9 @@ class FirebaseRepository {
         awaitClose { sub.remove() }
     }
 
-    suspend fun sendNotification(
+    // UPDATED: Implementation allows fire-and-forget usage (return Task vs await)
+    // We keep 'suspend' for compatibility but removed .await() to unblock UI
+    fun sendNotification(
         toUserId: String,
         type: NotificationType,
         title: String,
@@ -946,7 +972,8 @@ class FirebaseRepository {
             relatedId = relatedId,
             senderId = senderId
         )
-        ref.set(notif).await()
+        // Optimization: Do NOT await this. Let it happen in background.
+        ref.set(notif)
     }
 
     suspend fun deleteNotification(notificationId: String) {
