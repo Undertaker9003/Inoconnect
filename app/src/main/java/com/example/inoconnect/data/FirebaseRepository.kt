@@ -184,7 +184,7 @@ class FirebaseRepository {
     // FILE MANAGEMENT
     // ============================================================================================
 
-    // UPDATED: Added extension parameter
+    // Added extension parameter
     suspend fun uploadFile(uri: Uri, folder: String = "uploads", extension: String? = null): String? {
         return try {
             val extSuffix = if (extension != null) ".$extension" else ""
@@ -198,7 +198,7 @@ class FirebaseRepository {
         }
     }
 
-    // UPDATED: Pass "jpg" extension for images
+    // Pass "jpg" extension for images
     suspend fun uploadImage(imageUri: Uri): String? {
         return uploadFile(imageUri, "images", "jpg")
     }
@@ -780,8 +780,8 @@ class FirebaseRepository {
     // MESSAGING (OPTIMIZED)
     // ============================================================================================
 
-    // UPDATED: Accepts senderName, returns Unit.
-    // Optimized: Only await essential operations.
+    // Accepts senderName, returns Unit.
+    //  Only await essential operations.
     suspend fun sendMessage(
         channelId: String,
         content: String,
@@ -809,12 +809,12 @@ class FirebaseRepository {
             attachmentUrl = uploadFile(attachmentUri, folder, ext)
         }
 
-        // 2. Optimization: Use passed name or fetch only if necessary
+        // 2. Use passed name or fetch only if necessary
         val myName = senderName ?: getUserById(uid)?.username ?: "User"
 
         val channelRef = db.collection("chat_channels").document(channelId)
 
-        // 3. Optimization: Only do heavy project sync logic if absolutely necessary
+        // 3. Only do heavy project sync logic if absolutely necessary
         if (channelId.startsWith("project_")) {
             val docSnap = channelRef.get().await()
             if (!docSnap.exists()) {
@@ -870,7 +870,7 @@ class FirebaseRepository {
         channelTask.await()
     }
 
-    // UPDATED: Accepts senderName, fire-and-forget notification
+    // Accepts senderName, fire-and-forget notification
     suspend fun sendDirectMessage(
         toUserId: String,
         content: String,
@@ -883,10 +883,10 @@ class FirebaseRepository {
         val uid = currentUserId ?: return
         val channelId = if (uid < toUserId) "${uid}_$toUserId" else "${toUserId}_$uid"
 
-        // Note: We skip check for channel existence for speed; handled lazily by sendMessage
+        // We skip check for channel existence for speed; handled lazily by sendMessage
         sendMessage(channelId, content, attachmentUri, attachmentType, attachmentName, attachmentSize, senderName)
 
-        // PERFORMANCE FIX: Fire-and-forget notification (don't await)
+        // Fire-and-forget notification (don't await)
         try {
             sendNotification(
                 toUserId = toUserId,
@@ -952,7 +952,7 @@ class FirebaseRepository {
         awaitClose { sub.remove() }
     }
 
-    // UPDATED: Implementation allows fire-and-forget usage (return Task vs await)
+    // Implementation allows fire-and-forget usage (return Task vs await)
     // We keep 'suspend' for compatibility but removed .await() to unblock UI
     fun sendNotification(
         toUserId: String,
@@ -972,7 +972,7 @@ class FirebaseRepository {
             relatedId = relatedId,
             senderId = senderId
         )
-        // Optimization: Do NOT await this. Let it happen in background.
+        // Do NOT await this. Let it happen in background.
         ref.set(notif)
     }
 
