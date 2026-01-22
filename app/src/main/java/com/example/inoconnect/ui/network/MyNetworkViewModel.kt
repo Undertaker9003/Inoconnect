@@ -23,7 +23,7 @@ class MyNetworkViewModel : ViewModel() {
     )
     val networkStats: StateFlow<Map<String, Int>> = _networkStats.asStateFlow()
 
-    // --- NEW: Lists for Connections & Following ---
+    // Lists for Connections & Following 
     private val _connectionList = MutableStateFlow<List<User>>(emptyList())
     val connectionList: StateFlow<List<User>> = _connectionList.asStateFlow()
 
@@ -50,7 +50,7 @@ class MyNetworkViewModel : ViewModel() {
         }
     }
 
-    // --- NEW: Load Full User Lists for Sheets ---
+    //NEW: Load Full User Lists for Sheets
     fun loadConnections() {
         viewModelScope.launch {
             val uid = repository.currentUserId ?: return@launch
