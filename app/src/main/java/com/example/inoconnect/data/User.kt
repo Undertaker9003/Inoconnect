@@ -6,11 +6,11 @@ data class User(
     val role: String = "",
     val username: String = "",
     val profileImageUrl: String = "",
-    val backgroundImageUrl: String = "", // <--- THIS FIXES YOUR ERROR
+    val backgroundImageUrl: String = "", 
 
     // --- Academic Fields ---
     val headline: String = "",
-    val university: String = "", // <--- NEW FIELD
+    val university: String = "", 
     val faculty: String = "",
     val course: String = "",
     val yearOfStudy: String = "",
