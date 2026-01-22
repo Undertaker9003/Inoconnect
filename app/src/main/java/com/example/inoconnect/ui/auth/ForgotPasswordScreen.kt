@@ -108,7 +108,7 @@ fun ForgotPasswordScreen(
                 shadowElevation = 8.dp,
                 modifier = Modifier.size(100.dp)
             ) {
-                // FIXED: Changed Icons.Default.LockReset to Icons.Default.Lock
+                // Changed Icons.Default.LockReset to Icons.Default.Lock
                 Icon(
                     imageVector = Icons.Default.Lock,
                     contentDescription = "Forgot Password",
