@@ -100,7 +100,7 @@ fun GroupChatScreen(
     }
 
     // --- ATTACHMENT HANDLERS (Simplified for brevity, assumes helpers exist in same package) ---
-    // Note: Assuming getFileDetails exists from DirectChatScreen or copied here.
+    // Assuming getFileDetails exists from DirectChatScreen or copied here.
     fun updateFileDetails(uri: Uri) {
         val details = getFileDetails(context, uri)
         selectedAttachmentName = details.first
