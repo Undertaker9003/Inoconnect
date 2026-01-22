@@ -82,7 +82,7 @@ fun DirectChatScreen(
     var messageText by remember { mutableStateOf("") }
     var otherUser by remember { mutableStateOf<User?>(null) }
 
-    // PERFORMANCE FIX: Cache current user to avoid fetching on every send
+    // Cache current user to avoid fetching on every send
     var currentUser by remember { mutableStateOf<User?>(null) }
 
     // Attachment State
@@ -129,7 +129,7 @@ fun DirectChatScreen(
     }
 
     LaunchedEffect(channelId) {
-        // PERFORMANCE FIX: Fetch current user once
+        //Fetch current user once
         if (currentUserId != null) {
             currentUser = repository.getUserById(currentUserId)
         }
@@ -284,7 +284,7 @@ fun DirectChatScreen(
                                             attachmentType = selectedAttachmentType,
                                             attachmentName = selectedAttachmentName,
                                             attachmentSize = selectedAttachmentSize,
-                                            // PERFORMANCE FIX: Pass cached name
+                                            // Pass cached name
                                             senderName = currentUser?.username
                                         )
                                         messageText = ""
@@ -369,7 +369,7 @@ fun DirectChatScreen(
                     modifier = Modifier.padding(bottom = 16.dp, start = 8.dp)
                 )
 
-                // MENU EDIT: Removed Camera and Video options
+                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly // Changed to SpaceEvenly
@@ -637,7 +637,7 @@ fun MessageBubble(
     }
 }
 
-// ... AttachmentPreview remains same ...
+
 @Composable
 fun AttachmentPreview(type: String?, fileName: String?, fileSize: String?, onRemove: () -> Unit) {
     Row(
